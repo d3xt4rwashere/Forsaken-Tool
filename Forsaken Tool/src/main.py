@@ -3,6 +3,9 @@ import sys
 import subprocess
 import argparse
 import socket
+import hashlib
+import ssl
+import urllib.parse
 from datetime import datetime
 
 def auto_install(package_name, import_name=None):
@@ -11,38 +14,45 @@ def auto_install(package_name, import_name=None):
     try:
         __import__(import_name)
     except ImportError:
-        print(f"[*] '{package_name}' bulunamadı. Arka planda sessizce kuruluyor, lütfen bekleyin...")
+        print(f"[*] '{package_name}' not found. Installing silently in the background, please wait...")
         try:
             subprocess.check_call(
                 [sys.executable, "-m", "pip", "install", package_name],
                 stdout=subprocess.DEVNULL, 
                 stderr=subprocess.DEVNULL
             )
-            print(f"[+] '{package_name}' başarıyla kuruldu!")
+            print(f"[+] '{package_name}' installed successfully!")
         except Exception as e:
-            print(f"[-] '{package_name}' kurulamadı: {e}\nLütfen manuel olarak 'pip install {package_name}' komutunu girin.")
+            print(f"[-] Failed to install '{package_name}': {e}\nPlease install it manually using 'pip install {package_name}'.")
             sys.exit(1)
 
 auto_install("requests")
 auto_install("phonenumbers")
 auto_install("Pillow", "PIL")
+auto_install("dnspython", "dns")
+auto_install("PyPDF2")
+auto_install("python-docx", "docx")
 
 import requests
 import phonenumbers
 from phonenumbers import geocoder, carrier
 from PIL import Image, ExifTags
+import dns.resolver
+import PyPDF2
+from docx import Document
 
-__version__ = "3.0.0"
+__version__ = "1.2.1"
 __author__ = "By D3xt4r"
 
 if os.name == 'nt':
-    os.system('color 0c')
+    os.system('')
 
 R = "\033[31m"
 G = "\033[32m"
 Y = "\033[33m"
 W = "\033[0m"
 C = "\033[36m"
+O = "\033[38;5;208m"
 
 REPORT_FILE = "forsaken_report.txt"
 
@@ -54,7 +64,7 @@ def clear_screen():
 
 def log_to_report(content):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    clean_content = content.replace(R, "").replace(G, "").replace(Y, "").replace(W, "").replace(C, "")
+    clean_content = content.replace(R, "").replace(G, "").replace(Y, "").replace(W, "").replace(C, "").replace(O, "")
     try:
         with open(REPORT_FILE, "a", encoding="utf-8") as f:
             f.write(f"[{timestamp}] {clean_content}\n")
@@ -63,17 +73,17 @@ def log_to_report(content):
 
 def print_header():
     banner = f"""{R}
-    ███████╗██████╗ ██████╗ ███████╗███████╗██╗  ██╗███████╗███╗   ██╗
-    ██╔════╝██╔═══██╗██╔══██╗██╔════╝██╔════╝██║ ██╔╝██╔════╝████╗  ██║
-    █████╗  ██║   ██║██████╔╝███████╗█████╗  █████╔╝ █████╗  ██╔██╗ ██║
-    ██╔══╝  ██║   ██║██╔══██╗╚════██║██╔══╝  ██╔═██╗ ██╔══╝  ██║╚██╗██║
-    ██║     ╚██████╔╝██║  ██║███████║███████╗██║  ██╗███████╗██║ ╚████║
-    ╚═╝      ╚═════╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═══╝
-                                                                   
-           ████████╗ ██████╗  ██████╗ ██╗                          
-           ╚══██╔══╝██╔═══██╗██╔═══██╗██║                          
-              ██║   ██║   ██║██║   ██║██║                          
-              ██║   ██║   ██║██║   ██║██║                          
+    ███████╗ ██████╗ ██████╗  ██████╗ █████╗ ██╗  ██╗███████╗███╗   ██╗
+    ██╔════╝██╔═══██╗██╔══██╗██╔════╝██╔══██╗██║ ██╔╝██╔════╝████╗  ██║
+    █████╗  ██║   ██║██████╔╝███████║███████║█████╔╝ █████╗  ██╔██╗ ██║
+    ██╔══╝  ██║   ██║██╔══██╗╚════██║██╔══██║██╔═██╗ ██╔══╝  ██║╚██╗██║
+    ██║     ╚██████╔╝██║  ██║███████║██║  ██║██║  ██╗███████║██║ ╚████║
+    ╚═╝      ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═══╝
+                                                                       
+           ████████╗ ██████╗  ██████╗ ██╗                              
+           ╚══██╔══╝██╔═══██╗██╔═══██╗██║                              
+              ██║   ██║   ██║██║   ██║██║                              
+              ██║   ██║   ██║██║   ██║██║                              
               ██║   ╚██████╔╝╚██████╔╝████████╗                     
               ╚═╝    ╚═════╝  ╚═════╝ ╚══════╝                     
     {W}"""
@@ -315,11 +325,233 @@ def mac_lookup(mac_address):
     except Exception as e:
         print(f"{R}[-] Lookup Error: {e}{W}")
 
+def data_breach_lookup(email):
+    msg = f"[*] Checking Data Breaches for: {email}"
+    print(f"{O}{msg}{W}"); log_to_report(msg)
+    try:
+        res = requests.get(f"https://api.xposedornot.com/v1/check-email/{email}", timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            breaches = data.get("breaches", [[]])[0]
+            if breaches:
+                res_msg = f"[!] CAUTION: {len(breaches)} platform(s) breached!"
+                print(f"{R}{res_msg}{W}"); log_to_report(res_msg)
+                for b in breaches:
+                    print(f"    {R}-> {b}{W}")
+            else:
+                print(f"{G}[+] No breaches found. Looks clean!{W}")
+        elif res.status_code == 404:
+            print(f"{G}[+] No breaches found. Looks clean!{W}")
+        else:
+            print(f"{R}[-] API Server Error or Rate Limit hit.{W}")
+    except Exception as e:
+        print(f"{R}[-] Data Breach Check Error: {e}{W}")
+
+def metadata_cleaner(image_path):
+    msg = f"[*] Anti-OSINT: Scrubbing EXIF metadata from: {image_path}"
+    print(f"{O}{msg}{W}"); log_to_report(msg)
+    try:
+        img = Image.open(image_path)
+        data = list(img.getdata())
+        image_without_exif = Image.new(img.mode, img.size)
+        image_without_exif.putdata(data)
+        
+        if '.' in image_path:
+            clean_path = f"{image_path.rsplit('.', 1)[0]}_anon.{image_path.rsplit('.', 1)[1]}"
+        else:
+            clean_path = f"{image_path}_anon.png"
+            
+        image_without_exif.save(clean_path)
+        res = f"[+] SUCCESS: Image completely anonymized!\n    -> Saved to: {clean_path}"
+        print(f"{G}{res}{W}"); log_to_report(res)
+    except FileNotFoundError:
+        print(f"{R}[-] ERROR: Image not found.{W}")
+    except Exception as e:
+        print(f"{R}[-] Failed to clean image metadata: {e}{W}")
+
+def email_osint(email):
+    msg = f"[*] Running Deep Email OSINT on: {email}"
+    print(f"{O}{msg}{W}"); log_to_report(msg)
+    domain = email.split('@')[-1] if '@' in email else ""
+    
+    try:
+        mx_records = dns.resolver.resolve(domain, 'MX')
+        print(f"{G}[+] MX Records Found (Domain accepts mail):{W}")
+        for rdata in mx_records:
+            print(f"    - {rdata.exchange} (Pref: {rdata.preference})")
+    except Exception:
+        print(f"{R}[-] No MX records. Email might be invalid or spoofed/temp mail.{W}")
+    
+    email_hash = hashlib.md5(email.lower().strip().encode('utf-8')).hexdigest()
+    try:
+        res = requests.get(f"https://en.gravatar.com/{email_hash}.json", headers={'User-Agent': 'Mozilla/5.0'})
+        if res.status_code == 200:
+            data = res.json().get('entry', [])[0]
+            profile_url = data.get('profileUrl')
+            username = data.get('preferredUsername')
+            print(f"{G}[+] Gravatar Profile Found!{W}")
+            print(f"    - Username: {username}")
+            print(f"    - Profile Link: {profile_url}")
+            log_to_report(f"Gravatar Hit: {username} | {profile_url}")
+        else:
+            print(f"{Y}[-] No public Gravatar profile linked to this email.{W}")
+    except Exception as e:
+        print(f"{R}[-] Gravatar check error: {e}{W}")
+
+def leak_osint_search(query_term):
+    msg = f"[*] Querying Leak OSINT Intelligence Network for: {query_term}"
+    print(f"{O}{msg}{W}"); log_to_report(msg)
+    try:
+        url = f"https://api.xposedornot.com/v1/breach-analytics?email={query_term}"
+        res = requests.get(url, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            if "Error" not in data:
+                print(f"{G}[+] LEAK INTEL FOUND:{W}")
+                print(f"    - Exposed Records: {data.get('ExposedRecords', 'Unknown')}")
+                print(f"    - Breaches Count: {data.get('BreachesCount', 'Unknown')}")
+                print(f"    - Past Passwords Found: {'Yes' if data.get('PasswordsExposed') else 'No'}")
+            else:
+                print(f"{R}[-] No direct intelligence match found for this query.{W}")
+        else:
+            print(f"{R}[-] Leak intelligence node unreachable.{W}")
+    except Exception as e:
+        print(f"{R}[-] Leak OSINT Error: {e}{W}")
+
+def hash_analyzer(hash_str):
+    msg = f"[*] Analyzing Hash Algorithm & Intel: {hash_str}"
+    print(f"{O}{msg}{W}"); log_to_report(msg)
+    length = len(hash_str.strip())
+    print(f"{G}[+] Hash Length: {length} characters{W}")
+    
+    algo = "Unknown"
+    if length == 32: algo = "MD5 / NTLM"
+    elif length == 40: algo = "SHA-1"
+    elif length == 64: algo = "SHA-256"
+    elif length == 128: algo = "SHA-512"
+    
+    print(f"{G}[+] Estimated Algorithm: {algo}{W}")
+    try:
+        res = requests.get(f"https://api.ha.information-security.it/v1/?hash={hash_str}", timeout=5)
+        if res.status_code == 200:
+            print(f"[+] Online Database Result:\n{res.text}")
+        else:
+            print(f"{Y}[-] Not found in quick online public lookup tables.{W}")
+    except Exception:
+        print(f"{Y}[-] Online hash DB lookup skipped/unreachable.{W}")
+
+def wifi_recon(mac_or_ssid):
+    msg = f"[*] Running Wi-Fi / MAC Recon for: {mac_or_ssid}"
+    print(f"{O}{msg}{W}"); log_to_report(msg)
+    if ":" in mac_or_ssid or "-" in mac_or_ssid:
+        try:
+            res = requests.get(f"https://api.macvendors.com/{mac_or_ssid}", timeout=8)
+            if res.status_code == 200:
+                print(f"{G}[+] Wireless Adapter / Router Vendor: {res.text}{W}")
+                print(f"    - Security Profile: Standard IEEE 802.11 AP/Client")
+            else:
+                print(f"{R}[-] Vendor lookup failed.{W}")
+        except Exception as e:
+            print(f"{R}[-] Error: {e}{W}")
+    else:
+        print(f"{G}[+] SSID Target Analysis: {mac_or_ssid}{W}")
+        print(f"    - Estimated Default WPS Pin Generator algorithm: Check router label model.")
+        print(f"    - Common default security check: WPA2-PSK / WPA3 transition mode recommended.")
+
+def web_vulnerability_scanner(domain):
+    msg = f"[*] Running Web Quick Vulnerability / Fuzzing Scan: {domain}"
+    print(f"{O}{msg}{W}"); log_to_report(msg)
+    base_url = domain if domain.startswith(("http://", "https://")) else f"https://{domain}"
+    endpoints = ["/robots.txt", "/sitemap.xml", "/.git/HEAD", "/admin/", "/backup.zip", "/config.json", "/api/"]
+    
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    for ep in endpoints:
+        target = base_url.rstrip('/') + ep
+        try:
+            r = requests.get(target, headers=headers, timeout=4, allow_redirects=False)
+            if r.status_code == 200:
+                print(f"{R}[!] EXPOSED / OPEN [200]: {target}{W}")
+                log_to_report(f"Exposed: {target}")
+            elif r.status_code in [403, 401]:
+                print(f"{Y}[+] Protected [{r.status_code}]: {target}{W}")
+            else:
+                print(f"    - Checked: {ep} (Status: {r.status_code})")
+        except Exception:
+            continue
+
+def doc_metadata_cleaner(file_path):
+    msg = f"[*] Anti-OSINT Document Shield: Cleaning Metadata from {file_path}"
+    print(f"{O}{msg}{W}"); log_to_report(msg)
+    print(f"{C}[+] Feature Highlights: Defense-oriented, ideal for journalists & researchers.{W}")
+    try:
+        if file_path.lower().endswith('.pdf'):
+            reader = PyPDF2.PdfReader(file_path)
+            writer = PyPDF2.PdfWriter()
+            for page in reader.pages:
+                writer.add_page(page)
+            
+            clean_path = file_path.rsplit('.', 1)[0] + "_anon.pdf"
+            with open(clean_path, 'wb') as f:
+                writer.write(f)
+            print(f"{G}[+] SUCCESS: PDF metadata wiped! Saved to: {clean_path}{W}")
+            
+        elif file_path.lower().endswith('.docx'):
+            doc = Document(file_path)
+            core_props = doc.core_properties
+            core_props.author = "Anonymous"
+            core_props.last_modified_by = "Anonymous"
+            core_props.comments = ""
+            core_props.category = ""
+            
+            clean_path = file_path.rsplit('.', 1)[0] + "_anon.docx"
+            doc.save(clean_path)
+            print(f"{G}[+] SUCCESS: DOCX metadata wiped! Saved to: {clean_path}{W}")
+        else:
+            print(f"{R}[-] Unsupported format. Provide a .pdf or .docx file.{W}")
+    except Exception as e:
+        print(f"{R}[-] Document cleaning error: {e}{W}")
+
+def url_analyzer(target_url):
+    msg = f"[*] Analyzing URL Structure, Redirects & SSL: {target_url}"
+    print(f"{O}{msg}{W}"); log_to_report(msg)
+    if not target_url.startswith(("http://", "https://")):
+        target_url = "https://" + target_url
+        
+    try:
+        parsed = urllib.parse.urlparse(target_url)
+        print(f"{G}[+] URL Components:{W}")
+        print(f"    - Scheme: {parsed.scheme}")
+        print(f"    - Domain: {parsed.netloc}")
+        print(f"    - Path:   {parsed.path if parsed.path else '/'}")
+        print(f"    - Query:  {parsed.query if parsed.query else 'None'}")
+        
+        res = requests.get(target_url, timeout=6, allow_redirects=True)
+        print(f"\n{G}[+] Redirect Chain & Status:{W}")
+        print(f"    - Final Status Code: {res.status_code}")
+        print(f"    - Total Redirects: {len(res.history)}")
+        for resp in res.history:
+            print(f"      -> Redirected from {resp.url} (Status: {resp.status_code})")
+        print(f"      -> Final Destination: {res.url}")
+        
+        if parsed.scheme == 'https':
+            print(f"\n{G}[+] SSL / TLS Certificate Analysis:{W}")
+            ctx = ssl.create_default_context()
+            with socket.create_connection((parsed.netloc, 443), timeout=5) as sock:
+                with ctx.wrap_socket(sock, server_hostname=parsed.netloc) as ssock:
+                    cert = ssock.getpeercert()
+                    subject = dict(x[0] for x in cert.get('subject', []))
+                    issuer = dict(x[0] for x in cert.get('issuer', []))
+                    print(f"    - Issued To (CN): {subject.get('commonName', 'Unknown')}")
+                    print(f"    - Issued By (Org): {issuer.get('organizationName', 'Unknown')}")
+                    print(f"    - Valid Until: {cert.get('notAfter', 'Unknown')}")
+    except Exception as e:
+        print(f"{R}[-] URL Analysis Error: {e}{W}")
+
 def osint_searchers_menu():
     while True:
         clear_screen()
         print_header()
-        print(f"{C}==== [ SUB-MENU: OSINT SEARCHERS (SORGU) ] ===={W}\n")
+        print(f"{C}==== [ SUB-MENU: OSINT SEARCHERS ] ===={W}\n")
         print(f"{R}[01]{W} IP Geolocation Lookup         {R}[02]{W} Phone Number Recon")
         print(f"{R}[03]{W} Username Scanner              {R}[04]{W} EXIF Image Geo-Locator")
         print(f"{R}[05]{W} <-- Back to Main Menu")
@@ -349,7 +581,7 @@ def network_infra_menu():
     while True:
         clear_screen()
         print_header()
-        print(f"{C}==== [ SUB-MENU: NETWORK & INFRA (AĞ) ] ===={W}\n")
+        print(f"{C}==== [ SUB-MENU: NETWORK & INFRA ] ===={W}\n")
         print(f"{R}[01]{W} Subdomain Scanner     {R}[02]{W} DNS Zone Lookup       {R}[03]{W} HTTP Header Grabber")
         print(f"{R}[04]{W} Quick Port Scanner    {R}[05]{W} WHOIS Domain Lookup   {R}[06]{W} Reverse DNS Lookup")
         print(f"{R}[07]{W} <-- Back to Main Menu")
@@ -386,8 +618,9 @@ def hardware_recon_menu():
     while True:
         clear_screen()
         print_header()
-        print(f"{C}==== [ SUB-MENU: HARDWARE RECON (DONANIM) ] ===={W}\n")
-        print(f"{R}[01]{W} MAC Address Lookup            {R}[02]{W} <-- Back to Main Menu")
+        print(f"{C}==== [ SUB-MENU: HARDWARE RECON ] ===={W}\n")
+        print(f"{R}[01]{W} MAC Address Lookup            {R}[02]{W} Wi-Fi Recon / SSID Analyzer")
+        print(f"{R}[03]{W} <-- Back to Main Menu")
         
         choice = input(f"\n{Y}[?] Select a hardware tool: {W}").strip()
         if choice in ["1", "01"]:
@@ -395,6 +628,60 @@ def hardware_recon_menu():
             mac_lookup(mac)
             input(f"\n{C}Press Enter to return...{W}")
         elif choice in ["2", "02"]:
+            target = input("[*] Enter MAC Address or SSID name: ").strip()
+            wifi_recon(target)
+            input(f"\n{C}Press Enter to return...{W}")
+        elif choice in ["3", "03"]:
+            break
+
+def news_menu():
+    while True:
+        clear_screen()
+        print_header()
+        print(f"{O}==== [ SUB-MENU: ! NEWS (v1.2.1 FEATURES) ] ===={W}\n")
+        print(f"{O}[01]{W} Data Breach Scanner     {O}[02]{W} Anti-OSINT (Image EXIF Cleaner)")
+        print(f"{O}[03]{W} Email OSINT Detective   {O}[04]{W} Leak OSINT Analytics")
+        print(f"{O}[05]{W} Hash Analyzer & Crack   {O}[06]{W} Web Vuln Quick Scanner")
+        print(f"{O}[07]{W} Doc Metadata Cleaner    {O}[08]{W} URL Analyzer & SSL Certs")
+        print(f"{O}[09]{W} <-- Back to Main Menu")
+        
+        choice = input(f"\n{Y}[?] Select a feature: {W}").strip()
+        if choice in ["1", "01"]:
+            email = input("[*] Enter Target Email: ").strip()
+            data_breach_lookup(email)
+            input(f"\n{C}Press Enter to return...{W}")
+        elif choice in ["2", "02"]:
+            img_path = input("[*] Enter Image Path to Clean (e.g. C:\\photo.jpg): ").strip()
+            metadata_cleaner(img_path.strip('"').strip("'"))
+            input(f"\n{C}Press Enter to return...{W}")
+        elif choice in ["3", "03"]:
+            email = input("[*] Enter Target Email: ").strip()
+            email_osint(email)
+            input(f"\n{C}Press Enter to return...{W}")
+        elif choice in ["4", "04"]:
+            term = input("[*] Enter Target Email/Query for Leak Intel: ").strip()
+            leak_osint_search(term)
+            input(f"\n{C}Press Enter to return...{W}")
+        elif choice in ["5", "05"]:
+            h = input("[*] Enter Hash string: ").strip()
+            hash_analyzer(h)
+            input(f"\n{C}Press Enter to return...{W}")
+        elif choice in ["6", "06"]:
+            d = input("[*] Enter Web Domain to Scan: ").strip()
+            web_vulnerability_scanner(d)
+            input(f"\n{C}Press Enter to return...{W}")
+        elif choice in ["7", "07"]:
+            print(f"\n{C}[*] Document Metadata Cleaner (PDF/DOCX - Defense & Anti-OSINT){W}")
+            print(f"    - Ideal for journalists, researchers, and privacy-focused users.")
+            print(f"    - Strips author names, company info, and modification timestamps.\n")
+            p = input("[*] Enter PDF or DOCX file path: ").strip()
+            doc_metadata_cleaner(p.strip('"').strip("'"))
+            input(f"\n{C}Press Enter to return...{W}")
+        elif choice in ["8", "08"]:
+            u = input("[*] Enter URL to Analyze (Redirects/SSL): ").strip()
+            url_analyzer(u)
+            input(f"\n{C}Press Enter to return...{W}")
+        elif choice in ["9", "09"]:
             break
 
 def interactive_menu():
@@ -402,8 +689,9 @@ def interactive_menu():
         clear_screen()
         print_header()
         
-        print(f"{R}[01]{W} OSINT Searchers (Sorgu)       {R}[02]{W} Network & Infra (Ağ)")
-        print(f"{R}[03]{W} Hardware Recon (Donanım)       {R}[04]{W} Exit Framework")
+        print(f"{R}[01]{W} OSINT Searchers               {R}[02]{W} Network & Infra")
+        print(f"{R}[03]{W} Hardware Recon                {O}[04] ! NEWS (New Features){W}")
+        print(f"{R}[05]{W} Exit Framework")
         
         choice = input(f"\n{Y}[?] Enter Category Code: {W}").strip()
         
@@ -414,6 +702,8 @@ def interactive_menu():
         elif choice in ["3", "03"]:
             hardware_recon_menu()
         elif choice in ["4", "04"]:
+            news_menu()
+        elif choice in ["5", "05"]:
             print(f"{Y}[*] Shutting down framework... Reports saved.{W}")
             sys.exit(0)
         else:
@@ -423,7 +713,7 @@ def interactive_menu():
 def main():
     if len(sys.argv) > 1:
         print_header()
-        parser = argparse.ArgumentParser(description="FORSAKEN TOOL v3.0 - Advanced OSINT")
+        parser = argparse.ArgumentParser(description="FORSAKEN TOOL v1.2.1 - Advanced OSINT")
         parser.add_argument("-g", "--geo", type=str)
         parser.add_argument("-p", "--phone", type=str)
         parser.add_argument("-u", "--user", type=str)
